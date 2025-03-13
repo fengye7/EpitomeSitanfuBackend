@@ -1,0 +1,123 @@
+{% load static %}
+
+<div id="step" style="display:none">{{step}}</div>
+<div id="sim_code" style="display:none">{{sim_code}}</div>
+<div id="persona_name_list" style="display:none">{{persona_name_str}}</div>
+<div id="persona_init_pos" style="display:none">
+	{% for i in persona_init_pos %}
+		<span>{{i.0}},{{i.1}},{{i.2}}</span>
+	{% endfor %}
+</div>
+
+<script type="text/javascript">
+	// <step> -- one full loop around all three phases determined by <phase> is 
+	// a step. We use this to link the steps in the backend. 
+	let step = parseInt(document.getElementById('step').innerHTML);
+	let sim_code = document.getElementById('sim_code').innerHTML;
+	// let persona_names = document.getElementById('persona_name_list').innerHTML.split(",");
+
+	let spans = document.getElementById('persona_init_pos').getElementsByTagName('span');
+	let persona_names = {};
+	for(var i = 0, l = spans.length; i < l; i++){
+		let x = spans[i].innerText.split(",");
+		persona_names[x[0]] = [parseInt(x[1]), parseInt(x[2])]
+	}
+
+
+	// Phaser 3.0 global settings. 
+	// Configuration meant to be passed to the main Phaser game instance. 
+	const config = {
+	  type: Phaser.AUTO,
+	  width: 1500,
+	  height: 800,
+	  parent: "game-container",
+	  pixelArt: true,
+	  physics: {
+	    default: "arcade",
+	    arcade: {
+	      gravity: { y: 0 } } },
+	  scene: {
+	    preload: preload,
+	    create: create,
+	    update: update } };
+
+	// Creating the game instance and setting up the main Phaser variables that  
+	// will be used in it. 
+	const game = new Phaser.Game(config);
+	let cursors;
+	let camera;
+	let player;
+	let plus;
+	let minus;
+	let showDebug = false;
+
+	// Persona related variables. This should have the name of the persona as its 
+	// keys, and the instances of the Persona class as the values.
+	var spawn_tile_loc = {};
+	// for (var i = 0; i < persona_names.length; i++) { 
+	// 	spawn_tile_loc[persona_names[i]] = [0, 0]
+	// }
+
+	for (var key in persona_names){
+		spawn_tile_loc[key] = persona_names[key] ;
+	}
+	console.log(spawn_tile_loc);
+
+	var personas = {};
+	var pronunciatios = {};
+	let anims_direction;
+	let pre_anims_direction;
+	let pre_anims_direction_dict = {};
+
+	let curr_maze = "the_ville";
+
+	// <tile_width> is the width of one individual tile (tiles are square)
+	let tile_width = 32;
+	// Important: tile_width % movement_speed has to be 0. 
+	// <movement_speed> determines how fast we move at each upate cylce. 
+	let movement_speed = 32; 
+
+	// <timer_max> determines how frequently our update function will query the 
+	// frontend server. If it's higher, we wait longer cycles. 
+	let timer_max = 0;
+	let timer = timer_max;
+
+	// <phase> -- there are three phases: "process," "update," and "execute."
+	let phase = "update"; // or "update" or "execute"
+
+	// Variables for storing movements that are sent from the backend server.
+	let execute_movement;
+	let execute_count_max = tile_width/movement_speed;
+	let execute_count = execute_count_max;
+	let movement_target = {};
+	
+	function preload() {  
+
+	}
+
+	function create() {  
+
+	}
+
+
+	function update(time, delta) {
+
+	}
+
+	// Control button binders
+	var play_button=document.getElementById("play_button");
+	var pause_button=document.getElementById("pause_button");
+
+	// 自适应缩放逻辑 
+	function resizeGame() {
+		const gameCanvas = document.querySelector('canvas'); 
+		if (gameCanvas) {
+			gameCanvas.style.width  = '100%';
+			gameCanvas.style.height  = 'auto';
+		}
+	}
+
+	window.addEventListener('resize',  resizeGame);
+	resizeGame();
+</script>
+
