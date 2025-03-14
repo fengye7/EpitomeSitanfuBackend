@@ -8,6 +8,7 @@ import signal
 import subprocess
 import threading
 from django.core.cache  import cache
+import psutil
 from rest_framework.views  import APIView
 from rest_framework.response  import Response
 from rest_framework import status
@@ -673,6 +674,13 @@ class ExperimentStartView(APIView):
                 type=openapi.TYPE_INTEGER,
                 required=True 
             ),
+            openapi.Parameter(
+                'owner',
+                openapi.IN_QUERY,
+                description="实验所属者",
+                type=openapi.TYPE_STRING,
+                required=True 
+            ),
         ],
         responses={
             ResultEnum.SUCCESS: openapi.Response(description="实验启动成功"),
@@ -688,6 +696,7 @@ class ExperimentStartView(APIView):
         sim_code = request.GET.get('sim_code')
         target = request.GET.get('target')
         simulate_steps = request.GET.get('steps', 0)
+        owner = request.GET.get('owner')
 
         # 参数验证
         if not sim_code or not target:
@@ -712,13 +721,15 @@ class ExperimentStartView(APIView):
             '--target', target, 
             '--steps', str(simulate_steps),
             '--ui', 'false',
-            '--port', '8000'
+            '--port', '8000',
+            '--owner', owner
         ]
 
         # 使用线程启动异步事件循环
         thread = threading.Thread(target=self.run_async_task, args=(target, bash_command))
         thread.start()
 
+        cache.delete(CACHE_KEY)  # 清除缓存,启动一次实验其实创建了新的目录
         return generate_response(ResultEnum.SUCCESS, "Experiment started successfully.", {
             "webSocket": f"ws://{request.get_host()}/ws/experiment/{target}/"
         })
@@ -776,7 +787,7 @@ class ExperimentStartView(APIView):
                 f"experiment_{target}",  # 使用唯一的组名称
                 {
                     "type": "send_message",
-                    "message": message
+                    "message": message,
                 }
             )
         except Exception as e:
@@ -992,7 +1003,7 @@ class ExperimentStopView(APIView):
 
         # 尝试停止进程
         try:
-            os.kill(pid, signal.SIGTERM)  # 发送终止信号
+            self.terminate_process_and_children(pid)  # 终止进程及其子进程
             cache.delete(sim_code)  # 删除缓存中的 PID
         except ProcessLookupError:
             return generate_response(ResultEnum.ERROR, "Process not found.", {})
@@ -1012,6 +1023,15 @@ class ExperimentStopView(APIView):
             return False
         except Exception:
             return False
+        
+    def terminate_process_and_children(self, pid):
+        try:
+            parent = psutil.Process(pid)
+            for child in parent.children(recursive=True):  # 获取所有子进程
+                child.kill()  # 强制终止子进程
+            parent.kill()  # 然后终止父进程
+        except Exception as e:
+            print(f"Error terminating process and children: {e}")
         
 class ExperimentDeleteView(APIView):
     """

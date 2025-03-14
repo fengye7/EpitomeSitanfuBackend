@@ -21,7 +21,7 @@ class ExperimentConsumer(AsyncWebsocketConsumer):
         # }))
 
     async def disconnect(self, close_code):
-        print("尝试websocket断开")
+        # print("尝试websocket断开")
         await self.channel_layer.group_discard(
             self.group_name,
             self.channel_name
