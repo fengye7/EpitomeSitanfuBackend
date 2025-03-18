@@ -22,9 +22,10 @@ from utils import *
 
 # 添加配置文件
 # config_path = Path("../../llm_config.json")
-config_path = os.path.join(ROOT_DIR,"openai_config.json")
+config_path = os.path.join(ROOT_DIR,"openai_config copy.json")
 with open(config_path, "r") as f:
-    llm_config = json.load(f) 
+    llm_configs = json.load(f) 
+llm_config = llm_configs["clients"].get(llm_configs["client"]) # 选择模型相应的配置
 
 def get_random_alphanumeric(i=6, j=6): 
   """

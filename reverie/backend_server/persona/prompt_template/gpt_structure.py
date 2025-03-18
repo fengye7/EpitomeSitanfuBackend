@@ -11,18 +11,22 @@ import json
 from pathlib import Path
 from openai import AzureOpenAI, OpenAI
 
+from persona.prompt_template.sparkai_embedding import get_sparkai_embedding
 from utils import *
-# from openai_cost_logger import DEFAULT_LOG_PATH
-# from persona.prompt_template.openai_logger_singleton import OpenAICostLogger_Singleton
+from openai_cost_logger import DEFAULT_LOG_PATH
+from persona.prompt_template.openai_logger_singleton import OpenAICostLogger_Singleton
 
-# 设置代理环境变量,以便VPN起作用
+# # 设置代理环境变量,以便VPN起作用
 # import os
 # os.environ["HTTP_PROXY"] = "http://127.0.0.1:7890"
 # os.environ["HTTPS_PROXY"] = "http://127.0.0.1:7890"
 
-config_path = os.path.join(ROOT_DIR,"openai_config.json")
+config_path = os.path.join(ROOT_DIR,"openai_config copy.json")
 with open(config_path, "r") as f:
-    openai_config = json.load(f) 
+    llm_configs = json.load(f) 
+
+openai_config = llm_configs["clients"].get(llm_configs["client"]) # 选择模型相应的配置
+# print(openai_config)
 
 def setup_client(type: str, config: dict):
   """Setup the OpenAI client.
@@ -38,16 +42,25 @@ def setup_client(type: str, config: dict):
       The client object created, either AzureOpenAI or OpenAI.
   """
   if type == "azure":
+    print("正在使用azure!")
     client = AzureOpenAI(
         azure_endpoint=config["endpoint"],
         api_key=config["key"],
         api_version=config["api-version"],
     )
   elif type == "openai":
+    print("正在使用openai!")
     client = OpenAI(
         api_key=config["key"],
     )
-  elif type == "openai-transfer":
+  elif type == "openai-transfer": # 国内中转openai
+    print("正在使用国内中转链接！")
+    client = OpenAI(
+        api_key = config["key"],
+        base_url = config["url"] 
+    )
+  elif type == "sparkai": # 国内中转openai
+    print("正在使用星火大模型！")
     client = OpenAI(
         api_key = config["key"],
         base_url = config["url"] # 指向讯飞星火的请求地址
@@ -67,6 +80,9 @@ elif openai_config["client"] == "openai":
 elif openai_config["client"] == "openai-transfer":
   client = setup_client("openai-transfer", {"key": openai_config["model-key"],
                                             "url":openai_config["url"]})
+elif openai_config["client"] == "sparkai":
+  client = setup_client("sparkai", {"key": openai_config["sparkai-apipassword"],
+                                    "url":openai_config["sparkai-openai-url"]})
 
 if openai_config["embeddings-client"] == "azure":  
   embeddings_client = setup_client("azure", {
@@ -79,14 +95,17 @@ elif openai_config["embeddings-client"] == "openai":
 elif openai_config["embeddings-client"] == "openai-transfer":
   embeddings_client = setup_client("openai-transfer", { "key": openai_config["embeddings-key"],
                                                       "url":openai_config["embeddings-url"]})
+elif openai_config["embeddings-client"] == "sparkai":
+  embeddings_client = setup_client("sparkai", {"key": openai_config["sparkai-apipassword"], # 实际不能使用，在后续get_embedding中处理
+                                    "url":openai_config["sparkai-openai-url"]})
 else:
   raise ValueError("Invalid embeddings client")
 
-# cost_logger = OpenAICostLogger_Singleton(
-#   experiment_name = openai_config["experiment-name"],
-#   log_folder = DEFAULT_LOG_PATH,
-#   cost_upperbound = openai_config["cost-upperbound"]
-# )
+cost_logger = OpenAICostLogger_Singleton(
+  experiment_name = openai_config["experiment-name"],
+  log_folder = DEFAULT_LOG_PATH,
+  cost_upperbound = openai_config["cost-upperbound"]
+)
 
 
 def temp_sleep(seconds=0.1):
@@ -286,10 +305,34 @@ def get_embedding(text, model=openai_config["embeddings"]):
   text = text.replace("\n", " ")
   if not text: 
     text = "this is blank"
-  response = embeddings_client.embeddings.create(input=[text], model=model)
-  # cost_logger.update_cost(response=response, input_cost=openai_config["embeddings-costs"]["input"], output_cost=openai_config["embeddings-costs"]["output"])
-  # print("嵌入向量化输出：",response.data[0].embedding)
-  return response.data[0].embedding
+  # response = embeddings_client.embeddings.create(input=[text], model=model)
+  # # cost_logger.update_cost(response=response, input_cost=openai_config["embeddings-costs"]["input"], output_cost=openai_config["embeddings-costs"]["output"])
+  # # print("嵌入向量化输出：",response.data[0].embedding)
+  # return response.data[0].embedding
+  if openai_config["embeddings-client"] == "sparkai":
+    # version-1
+    # response = embeddings_client.embedding(text=text, kind='text')
+    # print("嵌入向量化输出：",response)
+    # return response
+
+    # version-2
+    # for attempt in range(3):
+    #   try:
+    #       response = embeddings_client.embedding(text=text, kind='text')
+    #       return response
+    #       break
+    #   except ValueError as e:
+    #       print(f"Attempt {attempt+1} failed: {e}")
+    #       time.sleep(2)  # Wait before retrying
+
+    # version-3
+    response = get_sparkai_embedding(text=text,style=openai_config["embeddings-domin"])
+    # print("嵌入向量化输出：",response)
+    return response
+  else:
+    response = embeddings_client.embeddings.create(input=[text], model=model)
+    cost_logger.update_cost(response=response, input_cost=openai_config["embeddings-costs"]["input"], output_cost=openai_config["embeddings-costs"]["output"])
+    return response.data[0].embedding
 
 
 if __name__ == '__main__':

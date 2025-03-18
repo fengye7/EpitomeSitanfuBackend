@@ -56,6 +56,7 @@ class ReverieServer:
   def __init__(self, 
                fork_sim_code,
                sim_code,
+               owner = "public",
                isCreate = False):
     # 通过默认参数重载初始化函数
     if isCreate:
@@ -190,11 +191,15 @@ class ReverieServer:
       copyanything(fork_folder, sim_folder) # 模版的使用
 
       with open(f"{sim_folder}/reverie/meta.json") as json_file:  
+        parent = json.load(json_file)["parent"]
+
+      with open(f"{sim_folder}/reverie/meta.json") as json_file:  
         reverie_meta = json.load(json_file)
 
       with open(f"{sim_folder}/reverie/meta.json", "w") as outfile: 
         reverie_meta["fork_sim_code"] = fork_sim_code
-        # reverie_meta["running_status"] = "running" # 添加状态记录
+        reverie_meta["owner"] = owner
+        reverie_meta["parent"] = parent
         outfile.write(json.dumps(reverie_meta, indent=2))
 
       # LOADING REVERIE'S GLOBAL VARIABLES

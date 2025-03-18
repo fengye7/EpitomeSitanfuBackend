@@ -63,6 +63,13 @@ def parse_args() -> Tuple[str, str, int, bool]:
         default="8000",
         help='Port number for the frontend server'
     )
+    # 添加所属人参数
+    parser.add_argument(
+        '--owner',
+        type=str,
+        default="public",
+        help='Indicate ownership'
+    )
     origin = parser.parse_args().origin
     target = parser.parse_args().target
     steps = parser.parse_args().steps
@@ -70,8 +77,9 @@ def parse_args() -> Tuple[str, str, int, bool]:
     ui = True if ui.lower() == "true" else False
     browser_path = parser.parse_args().browser_path
     port = parser.parse_args().port
+    owner = parser.parse_args().owner
     
-    return origin, target, steps, ui, browser_path, port
+    return origin, target, steps, ui, browser_path, port, owner
 
 
 def get_starting_step(exp_name: str) -> int:
@@ -235,7 +243,7 @@ if __name__ == '__main__':
     checkpoint_freq = 200 # 1 step = 10 sec
     log_path = "cost-logs" # where the simulations' prints are stored
     idx = 0
-    origin, target, tot_steps, ui, browser_path, port = parse_args()
+    origin, target, tot_steps, ui, browser_path, port, owner = parse_args()
     current_step = get_starting_step(origin)
     exp_name = target
     start_time = datetime.now()
@@ -254,7 +262,7 @@ if __name__ == '__main__':
             # target = f"{exp_name}-s-{idx}-{current_step}-{curr_checkpoint}" # 原项目为了分段储存，这里不需要（后面reverie中的copyanything对应调整）
             print(f"(Auto-Exec): STAGE {idx}", flush=True)
             print(f"(Auto-Exec): Running experiment '{exp_name}' from step '{current_step}' to '{curr_checkpoint}'", flush=True)
-            rs = reverie.ReverieServer(origin, target)
+            rs = reverie.ReverieServer(origin, target, owner=owner)
             th, pid = None, None 
             # Headless chrome doesn't need a thread since it create a dedicated thread by itself
             if ui:
