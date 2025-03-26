@@ -332,163 +332,170 @@
 
 
 	function update(time, delta) {
-		// *** SETUP PLAY AND PAUSE BUTTON *** 
-		let play_context = this;
+		// *** 设置播放和暂停按钮 *** 
+		let play_context = this; // 保存当前上下文
 		function game_resume() {  
-			play_context.scene.resume();
+			play_context.scene.resume(); // 恢复游戏场景
 		}  
-		play_button.onclick = function(){
-			game_resume();
+		play_button.onclick = function() {
+			game_resume(); // 点击播放按钮时调用恢复函数
 		};
 		function game_pause() {  
-			play_context.scene.pause();
+			play_context.scene.pause(); // 暂停游戏场景
 		}  
-		pause_button.onclick = function(){
-			game_pause();
+		pause_button.onclick = function() {
+			game_pause(); // 点击暂停按钮时调用暂停函数
 		};
 
-	  // *** MOVE CAMERA *** 
-	  // This is where we finish up the camera setting we started in the create() 
-	  // function. We set the movement speed of the camera and wire up the keys to
-	  // map to the actual movement.
-	  const camera_speed = 400;
-	  // Stop any previous movement from the last frame
-	  player.body.setVelocity(0);
-	  if (cursors.left.isDown) {
-	    player.body.setVelocityX(-camera_speed);
-	  } 
-	  if (cursors.right.isDown) {
-	    player.body.setVelocityX(camera_speed);
-	  } 
-	  if (cursors.up.isDown) {
-	    player.body.setVelocityY(-camera_speed);
-	  } 
-	  if (cursors.down.isDown) {
-	    player.body.setVelocityY(camera_speed);
-	  }
+		// *** 移动相机 *** 
+		// 这里完成我们在 create() 函数中开始的相机设置
+		const camera_speed = 400; // 相机移动速度
+		// 停止上一帧的任何移动
+		player.body.setVelocity(0); // 重置玩家速度
+		if (cursors.left.isDown) {
+			player.body.setVelocityX(-camera_speed); // 向左移动
+		} 
+		if (cursors.right.isDown) {
+			player.body.setVelocityX(camera_speed); // 向右移动
+		} 
+		if (cursors.up.isDown) {
+			player.body.setVelocityY(-camera_speed); // 向上移动
+		} 
+		if (cursors.down.isDown) {
+			player.body.setVelocityY(camera_speed); // 向下移动
+		}
 
-	  
-	  let curr_focused_persona = document.getElementById("temp_focus").textContent;
-	  if (curr_focused_persona != "") {
-	  	player.body.x = personas[curr_focused_persona].body.x;
-	  	player.body.y = personas[curr_focused_persona].body.y;
-	  	document.getElementById("temp_focus").innerHTML = "";
-	  }
+		// 获取当前聚焦的角色
+		let curr_focused_persona = document.getElementById("temp_focus").textContent;
+		if (curr_focused_persona != "") {
+			// 将玩家位置设为聚焦角色的位置
+			player.body.x = personas[curr_focused_persona].body.x;
+			player.body.y = personas[curr_focused_persona].body.y;
+			document.getElementById("temp_focus").innerHTML = ""; // 清空聚焦信息
+		}
 
+		// *** 移动角色 ***
+		for (let i = 0; i < Object.keys(personas).length; i++) {
+			let curr_persona_name = Object.keys(personas)[i];
+			let curr_persona = personas[curr_persona_name];
+			let curr_pronunciatio = pronunciatios[Object.keys(personas)[i]];
+			let curr_speech_bubble = speech_bubbles[Object.keys(personas)[i]];
 
+			// 检查角色在当前步骤中是否有移动信息
+			if (curr_persona_name.replace("_", " ") in all_movement[step]) {
+				if (execute_count == execute_count_max) { 
+					let curr_x = all_movement[step][curr_persona_name.replace("_", " ")]["movement"][0];
+					let curr_y = all_movement[step][curr_persona_name.replace("_", " ")]["movement"][1];
+					movement_target[curr_persona_name] = [curr_x * tile_width, 
+																curr_y * tile_width]; 
+					let pronunciatio_content = all_movement[step][curr_persona_name.replace("_", " ")]["pronunciatio"];
+					let description_content = all_movement[step][curr_persona_name.replace("_", " ")]["description"];
+					let chat_content_raw = all_movement[step][curr_persona_name.replace("_", " ")]["chat"];
 
-	  // *** MOVING PERSONAS ***
-	 	for (let i=0; i<Object.keys(personas).length; i++) {
-	 		let curr_persona_name = Object.keys(personas)[i];
-    	let curr_persona = personas[curr_persona_name];
-    	let curr_pronunciatio = pronunciatios[Object.keys(personas)[i]];
-    	let curr_speech_bubble = speech_bubbles[Object.keys(personas)[i]];
+					let chat_content = "";
+					if (chat_content_raw != null) {
+						for (let j = 0; j < chat_content_raw.length; j++) { 
+							chat_content += chat_content_raw[j][0] + ": " + chat_content_raw[j][1] + "<br>";
+						}
+					} else {
+						chat_content = "<em>None at the moment</em>";
+					}
 
-    	if (curr_persona_name.replace("_", " ") in all_movement[step]) {
-    		if (execute_count == execute_count_max) { 
-    			let curr_x = all_movement[step][curr_persona_name.replace("_", " ")]["movement"][0]
-	        let curr_y = all_movement[step][curr_persona_name.replace("_", " ")]["movement"][1]
-    			movement_target[curr_persona_name] = [curr_x * tile_width, 
-	                                              curr_y * tile_width]; 
-	        let pronunciatio_content = all_movement[step][curr_persona_name.replace("_", " ")]["pronunciatio"];
-	        let description_content = all_movement[step][curr_persona_name.replace("_", " ")]["description"];
-	        let chat_content_raw = all_movement[step][curr_persona_name.replace("_", " ")]["chat"];
+					// 提取角色姓名的首字母
+					let rgx = new RegExp(/(\p{L}{1})\p{L}+/, 'gu');
+					let initials = [...curr_persona_name.matchAll(rgx)] || [];
+					initials = (
+						(initials.shift()?.[1] || '') + (initials.pop()?.[1] || '')
+					).toUpperCase();
+					pronunciatios[curr_persona_name].setText(initials + ": " + pronunciatio_content);
 
-	        let chat_content = "";
-	        if (chat_content_raw != null ){
-		        for (let j=0; j<chat_content_raw.length; j++) { 
-		        	chat_content += chat_content_raw[j][0] + ": " + chat_content_raw[j][1] + "<br>"
-		        }
-		      } else {
-		      	chat_content = "<em>None at the moment</em>"
-		      }
+					// 更新每个角色的状态
+					document.getElementById("quick_emoji-" + curr_persona_name).innerHTML = pronunciatio_content;
+					document.getElementById("current_action__" + curr_persona_name).innerHTML = description_content.split("@")[0];
+					document.getElementById("target_address__" + curr_persona_name).innerHTML = description_content.split("@")[1];
+					document.getElementById("chat__" + curr_persona_name).innerHTML = chat_content;
+				}
 
-	       	// This is what gives the pronunciatio balloon the name initials. We 
-	        // use regex to extract the initials of the personas. 
-	        // E.g., "Dolores Murphy" -> "DM"
-	        let rgx = new RegExp(/(\p{L}{1})\p{L}+/, 'gu');
-	        let initials = [...curr_persona_name.matchAll(rgx)] || [];
-	        initials = (
-	          (initials.shift()?.[1] || '') + (initials.pop()?.[1] || '')
-	        ).toUpperCase();
-	        pronunciatios[curr_persona_name].setText(initials + ": " + pronunciatio_content);
+				if (execute_count > 0) {
+					// 更新角色位置
+					if (curr_persona.body.x < movement_target[curr_persona_name][0]) {
+						curr_persona.body.x += movement_speed; 
+						anims_direction = "r"; // 右移动
+						pre_anims_direction = "r";
+						pre_anims_direction_dict[curr_persona_name] = "r";
+					} else if (curr_persona.body.x > movement_target[curr_persona_name][0]) {
+						curr_persona.body.x -= movement_speed; 
+						anims_direction = "l"; // 左移动
+						pre_anims_direction = "l";
+						pre_anims_direction_dict[curr_persona_name] = "l";
+					} else if (curr_persona.body.y < movement_target[curr_persona_name][1]) {
+						curr_persona.body.y += movement_speed; // 下移动
+						anims_direction = "d";
+						pre_anims_direction = "d";
+						pre_anims_direction_dict[curr_persona_name] = "d";
+					} else if (curr_persona.body.y > movement_target[curr_persona_name][1]) {
+						curr_persona.body.y -= movement_speed; // 上移动
+						anims_direction = "u";
+						pre_anims_direction = "u";
+						pre_anims_direction_dict[curr_persona_name] = "u";
+					} else {
+						anims_direction = ""; // 停止移动
+					}
 
-	        // Updating the status of each personas 
-	        document.getElementById("quick_emoji-"+curr_persona_name).innerHTML = pronunciatio_content;
-	        document.getElementById("current_action__"+curr_persona_name).innerHTML = description_content.split("@")[0];
-	        document.getElementById("target_address__"+curr_persona_name).innerHTML = description_content.split("@")[1];
-	        document.getElementById("chat__"+curr_persona_name).innerHTML = chat_content;
-    		}
+					// 更新发音气泡和聊天气泡的位置
+					curr_pronunciatio.x = curr_persona.body.x + 18; 
+					curr_pronunciatio.y = curr_persona.body.y - 42 - 25; // 调整发音气泡位置
+					curr_speech_bubble.x = curr_persona.body.x + 80; 
+					curr_speech_bubble.y = curr_persona.body.y - 39;
 
-    		if (execute_count > 0) {
-    			if (curr_persona.body.x < movement_target[curr_persona_name][0]) {
-	          curr_persona.body.x += movement_speed; 
-	          anims_direction = "r";
-	          pre_anims_direction = "r"
-	          pre_anims_direction_dict[curr_persona_name] = "r"
-	        } else if (curr_persona.body.x > movement_target[curr_persona_name][0]) {
-	          curr_persona.body.x -= movement_speed; 
-	          anims_direction = "l";
-	          pre_anims_direction = "l"
-	          pre_anims_direction_dict[curr_persona_name] = "l"
-	        } else if (curr_persona.body.y < movement_target[curr_persona_name][1]) {
-	          curr_persona.body.y += movement_speed;
-	          anims_direction = "d";
-	          pre_anims_direction = "d"
-	          pre_anims_direction_dict[curr_persona_name] = "d"
-	        } else if (curr_persona.body.y > movement_target[curr_persona_name][1]) {
-	          curr_persona.body.y -= movement_speed;
-	          anims_direction = "u";
-	          pre_anims_direction = "u"
-	          pre_anims_direction_dict[curr_persona_name] = "u"
-	        } else {
-	        	anims_direction = "";
-	        }
-
-	        curr_pronunciatio.x = curr_persona.body.x + 18; 
-          curr_pronunciatio.y = curr_persona.body.y - 42 - 25; // DEBUG 1 --- I added 32 offset on Dec 29. 
-          curr_speech_bubble.x = curr_persona.body.x + 80; 
-          curr_speech_bubble.y = curr_persona.body.y - 39;
-
-          let left_walk_name = curr_persona_name + "-left-walk";
+					// 播放角色的行走动画
+					let left_walk_name = curr_persona_name + "-left-walk";
 					let right_walk_name = curr_persona_name + "-right-walk";
 					let down_walk_name = curr_persona_name + "-down-walk";
 					let up_walk_name = curr_persona_name + "-up-walk";
-          if (anims_direction == "l") {
-			      curr_persona.anims.play(left_walk_name, true);
-			    } else if (anims_direction == "r") {
-			      curr_persona.anims.play(right_walk_name, true);
-			    } else if (anims_direction == "u") {
-			      curr_persona.anims.play(up_walk_name, true);
-			    } else if (anims_direction == "d") {
-			      curr_persona.anims.play(down_walk_name, true);
-			    };
-    		}
-    	} else { 
-    		curr_persona.anims.stop();
-	      // If we were moving, pick an idle frame to use
-	      if (pre_anims_direction_dict[curr_persona_name] == "l") curr_persona.setTexture(curr_persona_name, "left"); else
-	      if (pre_anims_direction_dict[curr_persona_name] == "r") curr_persona.setTexture(curr_persona_name, "right"); else
-	      if (pre_anims_direction_dict[curr_persona_name] == "u") curr_persona.setTexture(curr_persona_name, "up"); else
-	      if (pre_anims_direction_dict[curr_persona_name] == "d") curr_persona.setTexture(curr_persona_name, "down");
-    	}
-	 	}
+					if (anims_direction == "l") {
+						curr_persona.anims.play(left_walk_name, true);
+					} else if (anims_direction == "r") {
+						curr_persona.anims.play(right_walk_name, true);
+					} else if (anims_direction == "u") {
+						curr_persona.anims.play(up_walk_name, true);
+					} else if (anims_direction == "d") {
+						curr_persona.anims.play(down_walk_name, true);
+					}
+				}
+			} else { 
+				// 如果角色没有移动，停止动画并设置闲置帧
+				curr_persona.anims.stop();
+				// 根据之前的方向选择一个闲置帧
+				if (pre_anims_direction_dict[curr_persona_name] == "l") {
+					curr_persona.setTexture(curr_persona_name, "left");
+				} else if (pre_anims_direction_dict[curr_persona_name] == "r") {
+					curr_persona.setTexture(curr_persona_name, "right");
+				} else if (pre_anims_direction_dict[curr_persona_name] == "u") {
+					curr_persona.setTexture(curr_persona_name, "up");
+				} else if (pre_anims_direction_dict[curr_persona_name] == "d") {
+					curr_persona.setTexture(curr_persona_name, "down");
+				}
+			}
+		}
 
-	  if (execute_count == 0) {
-		  for (let i=0; i<Object.keys(personas).length; i++) {
-	      let curr_persona_name = Object.keys(personas)[i]
-	      let curr_persona = personas[curr_persona_name];
-	      curr_persona.body.x = movement_target[curr_persona_name][0];
-	      curr_persona.body.y = movement_target[curr_persona_name][1];
-	    }
-			execute_count = execute_count_max + 1;
-	    step = step + 1;
+		// 如果执行计数为零，更新所有角色的位置并准备下一个步骤
+		if (execute_count == 0) {
+			for (let i = 0; i < Object.keys(personas).length; i++) {
+				let curr_persona_name = Object.keys(personas)[i];
+				let curr_persona = personas[curr_persona_name];
+				curr_persona.body.x = movement_target[curr_persona_name][0];
+				curr_persona.body.y = movement_target[curr_persona_name][1];
+			}
+			execute_count = execute_count_max + 1; // 重置执行计数
+			step = step + 1; // 步骤增加
 
-	    start_datetime = new Date(start_datetime.getTime() + step_size);
- 			document.getElementById("game-time-content").innerHTML = start_datetime.toLocaleTimeString("en-US", datetime_options);
-    }
+			// 更新游戏时间
+			start_datetime = new Date(start_datetime.getTime() + step_size);
+			document.getElementById("game-time-content").innerHTML = start_datetime.toLocaleTimeString("en-US", datetime_options);
+		}
 
-	  execute_count -= 1;
+		execute_count -= 1; // 执行计数减一
 	}
 
 	// Control button binders

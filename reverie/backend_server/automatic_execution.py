@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import gc
+import json
 import os
 import sys
 import time
@@ -14,6 +15,7 @@ from pathlib import Path
 from datetime import datetime
 from multiprocessing import Process
 from openai_cost_logger import OpenAICostLoggerViz
+from utils import *
 
 
 def parse_args() -> Tuple[str, str, int, bool]:
@@ -89,7 +91,7 @@ def get_starting_step(exp_name: str) -> int:
         exp_name (str): The name of the experiment
     """
     current_step = 0
-    experiments_directory = "../../environment/frontend_server/storage"
+    experiments_directory = f"{ROOT_DIR}/environment/frontend_server/storage"
     full_path = Path(experiments_directory, exp_name, "movement")  
     if full_path.exists():
         files = os.listdir(full_path)
@@ -219,7 +221,7 @@ class AutomaticReverieServer:
                 if step != 0:
                     self.origin, self.current_step, self.idx = self.save_checkpoint(rs)
                 else:
-                    shutil.rmtree(f"../../environment/frontend_server/storage/{self.target}")
+                    shutil.rmtree(f"{ROOT_DIR}/environment/frontend_server/storage/{self.target}")
                 print(f"(Auto-Exec): Error at step {self.current_step}", flush=True)
                 print(f"(Auto-Exec): Exception {e.args[0]}", flush=True)
             else:
@@ -240,37 +242,44 @@ class AutomaticReverieServer:
 
 
 if __name__ == '__main__':
-    checkpoint_freq = 200 # 1 step = 10 sec
-    log_path = "cost-logs" # where the simulations' prints are stored
+    log_path = "cost-logs"  # where the simulations' prints are stored
     idx = 0
     origin, target, tot_steps, ui, browser_path, port, owner = parse_args()
     current_step = get_starting_step(origin)
     exp_name = target
     start_time = datetime.now()
     tot_steps = int(tot_steps)
-    curr_checkpoint = get_new_checkpoint(current_step, tot_steps, checkpoint_freq)
 
     print("(Auto-Exec): STARTING THE EXPERIMENT", flush=True)
     print(f"(Auto-Exec): Origin: {origin}", flush=True)
     print(f"(Auto-Exec): Target: {target}", flush=True)
     print(f"(Auto-Exec): Total steps: {tot_steps}", flush=True)
-    print(f"(Auto-Exec): Checkpoint Freq: {checkpoint_freq}", flush=True)    
-        
+    # print(f"(Auto-Exec): Checkpoint Freq: {checkpoint_freq}", flush=True)
+
     while current_step < tot_steps:
         try:
-            steps_to_run = curr_checkpoint - current_step
-            # target = f"{exp_name}-s-{idx}-{current_step}-{curr_checkpoint}" # 原项目为了分段储存，这里不需要（后面reverie中的copyanything对应调整）
-            print(f"(Auto-Exec): STAGE {idx}", flush=True)
-            print(f"(Auto-Exec): Running experiment '{exp_name}' from step '{current_step}' to '{curr_checkpoint}'", flush=True)
+            print(f"(Auto-Exec): Running experiment '{exp_name}' from step '{current_step}' to '{current_step+1}'", flush=True)
+
             rs = reverie.ReverieServer(origin, target, owner=owner)
-            th, pid = None, None 
-            # Headless chrome doesn't need a thread since it create a dedicated thread by itself
+
+            # 读取 meta.json 文件
+            target_reverie_meta_path = os.path.join(fs_storage, target, "reverie", "meta.json")
+            with open(target_reverie_meta_path, 'r') as f:
+                meta_data = json.load(f)
+            # 写回更新后的数据
+            meta_data["current_step"] = current_step
+            meta_data["status"] = "running"
+            with open(target_reverie_meta_path, 'w') as f:
+                json.dump(meta_data, f, ensure_ascii=False, indent=2)
+
+            th, pid = None, None
+            # Headless chrome doesn't need a thread since it creates a dedicated thread by itself
             if ui:
                 th = Process(target=start_web_tab, args=(ui, browser_path, port))
                 th.start()
             else:
                 pid = start_web_tab(ui, browser_path, port)
-            rs.open_server(input_command=f"run {steps_to_run}")
+            rs.open_server(input_command=f"run {1}") # 一步一步运行
         except KeyboardInterrupt:
             print("(Auto-Exec): KeyboardInterrupt: Stopping the experiment.", flush=True)
             sys.exit(0)
@@ -280,20 +289,19 @@ if __name__ == '__main__':
             if step != 0:
                 origin, current_step, idx = save_checkpoint(rs, idx, th)
             else:
-                shutil.rmtree(f"../../environment/frontend_server/storage/{target}") # Remove the experiment folder if no steps were run
+                shutil.rmtree(f"{ROOT_DIR}/environment/frontend_server/storage/{target}")  # Remove the experiment folder if no steps were run
             print(f"(Auto-Exec): Error at step {current_step}", flush=True)
             print(f"(Auto-Exec): Exception {e.args[0]}", flush=True)
         else:
             origin, current_step, idx = save_checkpoint(rs, idx, th)
-            curr_checkpoint = get_new_checkpoint(current_step, tot_steps, checkpoint_freq)
         finally:
-            time.sleep(10) # Wait for the server to finish and then kill the process
+            time.sleep(10)  # Wait for the server to finish and then kill the process
             if th and th.is_alive():
                 th.kill()
                 th.join()
                 th.close()
                 gc.collect()
-        
+
             if pid:
                 os.system(f"kill -9 {pid}")
                 print(f"(Auto-Exec): Killed web tab process with pid {pid}", flush=True)

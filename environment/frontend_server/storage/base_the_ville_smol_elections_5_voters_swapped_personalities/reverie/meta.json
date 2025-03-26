@@ -15,5 +15,8 @@
   ],
   "step": 0,
   "owner": "",
-  "parent": "base_the_ville_smol_elections_5_voters"
+  "parent": "base_the_ville_smol_elections_5_voters",
+  "pid": 0,
+  "status": "not started",
+  "current_step": 0
 }

@@ -1,5 +1,6 @@
 import asyncio
 from asyncio.log import logger
+from enum import Enum
 import json
 import logging
 import os
@@ -24,17 +25,16 @@ from global_methods import MyCopyanything
 
 import sys
 
+
 # 添加 reverie 模块的父目录到 sys.path
-sys.path.append(os.path.join(settings.ROOT_DIR, 'reverie/backend_server'))
-from automatic_execution import AutomaticReverieServer
+sys.path.append(os.path.join(settings.ROOT_DIR, 'reverie'))
+# from automatic_execution import AutomaticReverieServer
+from compress_sim_storage import compress
 # from reverie import ReverieServer
 
 EXPERIMENT_STORAGE_ROOT = settings.EXPERIMENT_STORAGE_ROOT
 PUBLIC_EXPERIMENT_WHITELIST = settings.PUBLIC_EXPERIMENT_WHITELIST
 BASE_DIR = settings.BASE_DIR
-
-CACHE_KEY = 'experiment_list'
-CACHE_TIMEOUT = 60 * 5  # 优化缓存时间为5分钟
 
 from rest_framework.response import Response
 from rest_framework import status
@@ -51,6 +51,11 @@ class ResultEnum:
     TIMEOUT = 10000
     TYPE = 'success'
 
+class ExperimentStatus(Enum):
+    NOT_STARTED = "not started"
+    RUNNING = "running"
+    FINISHED = "finished"
+
 def generate_response(code, message, data):
     """ 生成统一格式的响应 """
     response = Response({
@@ -66,6 +71,8 @@ def generate_response(code, message, data):
 
     return response
 
+
+
 class ExperimentListView(APIView):
     """
     实验列表视图（支持公共和个性化实验查询）
@@ -73,17 +80,70 @@ class ExperimentListView(APIView):
     permission_classes = [AllowAny]
 
     def _get_experiments(self):
-        """ 获取实验列表（带缓存机制） """
-        experiments = cache.get(CACHE_KEY)
-        if not experiments:
-            try:
-                experiments = os.listdir(EXPERIMENT_STORAGE_ROOT)
-                cache.set(CACHE_KEY, experiments, CACHE_TIMEOUT)
-            except FileNotFoundError:
-                return generate_response(ResultEnum.ERROR, "实验存储目录不存在", None)
-            except PermissionError:
-                return generate_response(ResultEnum.ERROR, "目录访问权限不足", None)
+        """ 获取实验列表"""
+        experiments = []  # 初始化变量
+        try:
+            experiments = os.listdir(EXPERIMENT_STORAGE_ROOT)
+        except FileNotFoundError:
+            return generate_response(ResultEnum.ERROR, "实验存储目录不存在", None)
+        except PermissionError:
+            return generate_response(ResultEnum.ERROR, "目录访问权限不足", None)
         return experiments
+
+    def _get_experiment_metadata(self, experiment_name):
+        """ 获取实验的元数据 """
+        experiment_dir = os.path.join(EXPERIMENT_STORAGE_ROOT, experiment_name)
+        reverie_meta_path = os.path.join(experiment_dir, "reverie/meta.json")
+        try:
+            with open(reverie_meta_path, 'r') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return None
+
+    def _build_experiment_hierarchy(self, experiments, username):
+        """ 构建实验层级关系 """
+        experiments_map = {}  # 存储所有实验对象
+        parent_map = {}  # 存储父实验与子实验的关系
+
+        for exp in experiments:
+            metadata = self._get_experiment_metadata(exp)
+            if metadata is None:
+                continue  # 忽略不存在的实验
+
+            is_public = exp in PUBLIC_EXPERIMENT_WHITELIST
+            if not is_public and username != metadata.get('owner'):
+                continue  # 不是公共实验且不是当前用户的实验，过滤掉
+
+            parent = metadata.get('parent')
+            is_template = (parent == exp)  # 父实验就是自己的视为模板
+
+            # 创建实验对象
+            experiment_info = {
+                'name': exp,
+                'type': 'public' if is_public else 'private',
+                'status': metadata.get('status', 'not started'),
+                'current_step': metadata.get('current_step', 0),
+                'isTemplate': is_template,
+                'children': []
+            }
+
+            # 存储实验对象
+            experiments_map[exp] = experiment_info
+
+            # 组织父子关系
+            if not is_template:
+                if parent not in parent_map:
+                    parent_map[parent] = []
+                parent_map[parent].append(experiment_info)
+
+        # 将子实验正确归入父实验
+        for parent, children in parent_map.items():
+            if parent in experiments_map:
+                experiments_map[parent]['children'].extend(children)
+
+        # 第三步：返回所有 `isTemplate` 为 True 的实验（即顶级实验）
+        return [exp for exp in experiments_map.values() if exp['isTemplate']]
+
 
     @swagger_auto_schema(
         operation_description="获取实验列表（公共和个性化实验查询）",
@@ -99,17 +159,15 @@ class ExperimentListView(APIView):
                         'code': openapi.Schema(type=openapi.TYPE_INTEGER),
                         'message': openapi.Schema(type=openapi.TYPE_STRING),
                         'data': openapi.Schema(
-                            type=openapi.TYPE_OBJECT,
-                            properties={
-                                'public_experiments': openapi.Schema(
-                                    type=openapi.TYPE_ARRAY,
-                                    items=openapi.Items(type=openapi.TYPE_STRING)
-                                ),
-                                'private_experiments': openapi.Schema(
-                                    type=openapi.TYPE_ARRAY,
-                                    items=openapi.Items(type=openapi.TYPE_STRING)
-                                )
-                            }
+                            type=openapi.TYPE_ARRAY,
+                            items=openapi.Items(type=openapi.TYPE_OBJECT, properties={
+                                'name': openapi.Schema(type=openapi.TYPE_STRING),
+                                'type': openapi.Schema(type=openapi.TYPE_STRING),
+                                'status': openapi.Schema(type=openapi.TYPE_STRING),
+                                'current_step': openapi.Schema(type=openapi.TYPE_INTEGER),
+                                'isTemplate': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                                'children': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT))
+                            })
                         ),
                     }
                 )
@@ -135,33 +193,12 @@ class ExperimentListView(APIView):
             if isinstance(experiments, Response):  # 检查是否返回了错误响应
                 return experiments
 
-            # 按照实验类型过滤
-            public_experiments = [exp for exp in experiments if exp in PUBLIC_EXPERIMENT_WHITELIST]
-            private_experiments = [exp for exp in experiments if exp not in PUBLIC_EXPERIMENT_WHITELIST]
-            user_experiments = []
+            all_experiments = self._build_experiment_hierarchy(experiments, username)
 
-            for exp in private_experiments:
-                experiment_dir = os.path.join(EXPERIMENT_STORAGE_ROOT, exp)
-                reverie_meta_path = os.path.join(experiment_dir, "reverie/meta.json")
-
-                try:
-                    # 读取 meta.json 文件
-                    with open(reverie_meta_path, 'r') as f:
-                        meta_data = json.load(f)
-                        # 根据实验所有者过滤实验
-                        if meta_data.get("owner") == username:
-                            user_experiments.append(exp)
-
-                except FileNotFoundError:
-                    # 处理找不到文件的情况
-                    continue  # 跳过该实验
             return generate_response(
                 ResultEnum.SUCCESS,
                 "成功获取实验列表",
-                {
-                    "public_experiments": public_experiments,
-                    "private_experiments": user_experiments
-                }
+                all_experiments  # 直接返回处理后的实验列表
             )
 
         except Exception as e:
@@ -173,103 +210,47 @@ class ExperimentListView(APIView):
                 None  # 在错误情况下，返回 None 或详细错误信息
             )
         
-
-from django.views.decorators.clickjacking import xframe_options_exempt
-from django.utils.decorators import method_decorator
-from django.shortcuts import render
-class PhaserGameEmbedView(APIView):
+class CompressSimulationView(APIView):
     """
-    Phaser3 游戏嵌入接口 
-    支持动态配置游戏参数，允许通过 iframe 嵌入 
+    压缩实验接口
+    接受实验名称作为参数，并进行压缩处理
     """
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(
-        operation_description="获取 Phaser3 游戏嵌入接口",
+        operation_description="压缩实验",
         manual_parameters=[
-            openapi.Parameter('sim_code', openapi.IN_QUERY, description="仿真代码位置，用于加载特定仿真环境", type=openapi.TYPE_STRING, default=''),
-            openapi.Parameter('step', openapi.IN_QUERY, description="仿真步数，用于选择不同阶段", type=openapi.TYPE_INTEGER, default=0)
+            openapi.Parameter('sim_code', openapi.IN_QUERY, description="实验名称，用于指定需要压缩的实验，例如：base_the_ville_isabella_maria_klaus", type=openapi.TYPE_STRING, required=True)
         ],
         responses={
-            ResultEnum.SUCCESS: openapi.Response(description="游戏界面HTML", content={'text/html': {}}),
-            ResultEnum.ERROR: openapi.Response(description="参数验证失败", examples={"application/json": {"error": "Invalid width value"}})
+            200: openapi.Response(description="压缩成功", examples={"application/json": {"message": "Compression successful"}}),
+            400: openapi.Response(description="参数验证失败", examples={"application/json": {"error": "Invalid sim_code value"}}),
+            500: openapi.Response(description="服务器内部错误", examples={"application/json": {"error": "Compression failed"}})
         }
     )
-    @method_decorator(xframe_options_exempt)
-    def get(self, request):
+    def post(self, request):
         """
         核心逻辑：
-        1. 参数验证与处理 
-        2. 安全头设置 
-        3. 动态模板渲染 
+        1. 参数验证与处理
+        2. 调用压缩函数
+        3. 返回结果
         """
-        params = self._validate_params(request)
-        if isinstance(params, Response):
-            return generate_response(ResultEnum.ERROR, "参数校验失败", params.data)
+        sim_code = request.GET.get('sim_code', '')
 
-        sim_code = params['sim_code']
-        step = int(params['step'])
-        persona_names = []
-        persona_names_set = set()
-        
-        for i in find_filenames(f"storage/{sim_code}/personas", ""): 
-            x = i.split("/")[-1].strip()
-            if x[0] != ".": 
-                persona_names += [[x, x.replace(" ", "_")]]
-                persona_names_set.add(x)
+        # 验证参数
+        if not sim_code or not isinstance(sim_code, str):
+            return Response({"error": "Invalid sim_code value"}, status=400)
 
-        persona_init_pos = []
-        file_count = []
-        
-        for i in find_filenames(f"storage/{sim_code}/environment", ".json"):
-            x = i.split("/")[-1].strip()
-            if x[0] != ".": 
-                file_count += [int(x.split(".")[0])]
-        
-        curr_json = f'storage/{sim_code}/environment/{str(max(file_count))}.json'
-        with open(curr_json) as json_file:  
-            persona_init_pos_dict = json.load(json_file)
-            for key, val in persona_init_pos_dict.items(): 
-                if key in persona_names_set: 
-                    persona_init_pos += [[key, val["x"], val["y"]]]
-
-        context = {
-            "sim_code": sim_code,
-            "step": step,
-            "persona_names": persona_names,
-            "persona_init_pos": persona_init_pos, 
-            "mode": "replay"
-        }
-        
-        template = "home/home.html"
-        response = render(request, template, context)
-        response['X-Frame-Options'] = 'ALLOWALL'
-        response['Content-Security-Policy'] = "frame-ancestors 'self' *"
-        
-        return generate_response(ResultEnum.SUCCESS, "成功获取游戏界面", {"html": response.content.decode()})
-
-    def _validate_params(self, request):
-        validator = {
-            'sim_code': lambda x: isinstance(x, str) and len(x) > 0,
-            'step': lambda x: x.isdigit() and int(x) >= 0
-        }
-
-        errors = {}
-        params = {
-            'sim_code': request.GET.get('sim_code', ''),
-            'step': request.GET.get('step', 0)
-        }
-
-        for field, check in validator.items():
-            try:
-                if not check(params[field]):
-                    errors[field] = f"Invalid {field} value"
-            except (ValueError, TypeError):
-                errors[field] = f"Invalid {field} format"
-
-        if errors:
-            return generate_response(ResultEnum.ERROR,"参数校验失败",{"details":errors})
-        return params
+        try:
+            # 调用压缩函数
+            compress(sim_code)
+            return generate_response(ResultEnum.SUCCESS, "Compression successful", {})
+        except FileExistsError:
+            # 文件已存在，返回成功消息但包含提示
+            return generate_response(ResultEnum.SUCCESS, "Compression completed, but files already exist.", {})
+        except Exception as e:
+            # 处理其他异常
+            return generate_response(ResultEnum.ERROR, {"error": str(e)}, {})
     
 class VideoHLSView(APIView):
     """
@@ -424,10 +405,16 @@ class ExperimentCreateView(APIView):
 
         if not characters or not isinstance(characters, list):
             return generate_response(ResultEnum.ERROR, "characters must be a list.", {})
+        
+        sim_code = sim_code+"-"+owner
+
 
         # 创建实验目录
         experiment_dir = os.path.join(EXPERIMENT_STORAGE_ROOT, sim_code)
-        if not os.path.exists(experiment_dir):
+        # 检查路径是否存在
+        if os.path.exists(experiment_dir):
+            return generate_response(ResultEnum.ERROR, "Already have a same name simulation", {})
+        else:
             os.makedirs(experiment_dir)
 
         # 创建环境目录
@@ -548,8 +535,7 @@ class ExperimentCreateView(APIView):
             # 复制关联记忆文件
             temp_associative_memory_path = os.path.join(temp_storage_path, 'associative_memory')
             MyCopyanything(temp_associative_memory_path, os.path.join(bootstrap_memory_dir, 'associative_memory'))
-        # 清除缓存
-        cache.delete(CACHE_KEY)
+
         return generate_response(ResultEnum.SUCCESS, "Experiment created successfully.", {})
 
     def create_spatial_memory(self, character_name):
@@ -643,160 +629,17 @@ class ExperimentCreateView(APIView):
                 character_items[area] = chosen_items
             spatial_memory_data[location] = character_items
         return spatial_memory_data
-
-class ExperimentStartView(APIView):
-    """
-    启动实验并执行外部 Bash 脚本，并通过 WebSocket 发送输出
-    """
-    permission_classes = []
-
-    @swagger_auto_schema(
-        operation_description="启动实验并执行外部脚本(并通过 WebSocket 发送输出)",
-        manual_parameters=[
-            openapi.Parameter(
-                'sim_code',
-                openapi.IN_QUERY,
-                description="模板实验名称: 例如：base_the_ville_isabella_maria_klaus",
-                type=openapi.TYPE_STRING,
-                required=True
-            ),
-            openapi.Parameter(
-                'target',
-                openapi.IN_QUERY,
-                description="目标实验名称",
-                type=openapi.TYPE_STRING,
-                required=True  
-            ),
-            openapi.Parameter(
-                'steps',
-                openapi.IN_QUERY,
-                description="实验步骤数",
-                type=openapi.TYPE_INTEGER,
-                required=True 
-            ),
-            openapi.Parameter(
-                'owner',
-                openapi.IN_QUERY,
-                description="实验所属者",
-                type=openapi.TYPE_STRING,
-                required=True 
-            ),
-        ],
-        responses={
-            ResultEnum.SUCCESS: openapi.Response(description="实验启动成功"),
-            ResultEnum.ERROR: openapi.Response(description="参数验证失败"),
-            ResultEnum.ERROR: openapi.Response(description="执行脚本不存在")
-        }
-    )
-    def post(self, request):
-        """
-        启动实验并执行 Bash 脚本
-        """
-        # 获取参数
-        sim_code = request.GET.get('sim_code')
-        target = request.GET.get('target')
-        simulate_steps = request.GET.get('steps', 0)
-        owner = request.GET.get('owner')
-
-        # 参数验证
-        if not sim_code or not target:
-            return generate_response(ResultEnum.ERROR, "sim_code and target are required.", {})
-        if sim_code == target:
-            return generate_response(ResultEnum.ERROR, "sim_code and target are the same.", {})
-
-        try:
-            simulate_steps = int(simulate_steps)
-        except ValueError:
-            return generate_response(ResultEnum.ERROR, "steps must be an integer.", {})
-
-        # 获取脚本路径
-        backend_script_path = os.path.join(settings.ROOT_DIR, "run_backend_automatic.sh")
-        if not os.path.exists(backend_script_path):
-            return generate_response(ResultEnum.ERROR, "Bash script not found.", {})
-
-        # 准备 Bash 脚本的参数
-        bash_command = [
-            'bash', backend_script_path,
-            '--origin', sim_code, 
-            '--target', target, 
-            '--steps', str(simulate_steps),
-            '--ui', 'false',
-            '--port', '8000',
-            '--owner', owner
-        ]
-
-        # 使用线程启动异步事件循环
-        thread = threading.Thread(target=self.run_async_task, args=(target, bash_command))
-        thread.start()
-
-        cache.delete(CACHE_KEY)  # 清除缓存,启动一次实验其实创建了新的目录
-        return generate_response(ResultEnum.SUCCESS, "Experiment started successfully.", {
-            "webSocket": f"ws://{request.get_host()}/ws/experiment/{target}/"
-        })
-
-    def run_async_task(self, target, bash_command):
-        """创建新的事件循环并运行异步任务"""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(self.async_run_process(target, bash_command))
-
-    async def async_run_process(self, target, bash_command):
-        """使用 asyncio 启动 Bash 进程并监听输出"""
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *bash_command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            cache.set(target, process.pid)
-            print(f"Experiment PID: {process.pid}")
-
-            # 创建监听 stdout 和 stderr 的任务（注意传入 target 参数）
-            stdout_task = asyncio.create_task(self.read_stream(target, process.stdout))
-            stderr_task = asyncio.create_task(self.read_stream(target, process.stderr, is_error=True))
-
-            await asyncio.gather(stdout_task, stderr_task)
-            await process.wait()
-
-            # 发送实验结束消息
-            await self.send_websocket_message(target, "实验结束")
-
-        except Exception as e:
-            logging.error(f"Error executing bash script: {e}")
-            await self.send_websocket_message(target, f"Error: {str(e)}")
-            cache.delete(target)  # 在出错时清除缓存中的 PID
-
-    async def read_stream(self, target, stream, is_error=False):
-        """异步读取输出流并通过 WebSocket 发送"""
-        while not stream.at_eof():
-            line = await stream.readline()
-            if line:
-                # 注意：line 已经是字符串，如果不是则解码
-                message = line.strip()
-                if isinstance(message, bytes):
-                    message = message.decode()
-                if is_error:
-                    message = f"ERROR: {message}"
-                await self.send_websocket_message(target, message)
-
-    async def send_websocket_message(self, target, message):
-        """通过 WebSocket 发送消息"""
-        try:
-            channel_layer = get_channel_layer()
-            await channel_layer.group_send(
-                f"experiment_{target}",  # 使用唯一的组名称
-                {
-                    "type": "send_message",
-                    "message": message,
-                }
-            )
-        except Exception as e:
-            logging.error(f"WebSocket发送失败: {str(e)}")
-
+    
 
 class ExperimentDetailView(APIView):
     """
-    获取实验详细数据（人物的行为、语言等）(返回jsong格式的集合，每个人物对应一个字段)
+    获取实验详细数据（人物的行为、语言等）(返回try:
+            # 读取 meta.json 文件
+            with open(reverie_meta_path, 'r') as f:
+                meta_data = json.load(f)
+                config_data_collection = meta_data
+        except Exception as e:
+            return generate_response(ResultEnum.ERROR, f"Error reading {config_data_collection}: {str(e)}", {})jsong格式的集合，每个人物对应一个字段)
     """
     permission_classes = [AllowAny]
 
@@ -904,13 +747,209 @@ class ExperimentDetailView(APIView):
                 meta_data = json.load(f)
                 config_data_collection = meta_data
         except Exception as e:
-            return generate_response(ResultEnum.ERROR, f"Error reading {config_data_collection}: {str(e)}", {})
+            return generate_response(ResultEnum.ERROR, f"Error reading {reverie_meta_path}: {str(e)}", {})
 
         # 返回集合数据
         return generate_response(ResultEnum.SUCCESS, "Scratch data retrieved successfully.", {
             "scratch_data_collection": scratch_data_collection,
             "config" : config_data_collection
         })
+
+
+import os
+import json
+import logging
+import asyncio
+import threading
+from rest_framework.views import APIView
+from rest_framework.permissions import AllowAny
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+import aiofiles  # 确保安装 aiofiles
+
+class ExperimentStartView(APIView):
+    """
+    启动实验并执行外部 Bash 脚本，并通过 WebSocket 发送输出
+    """
+    permission_classes = []
+
+    @swagger_auto_schema(
+        operation_description="启动实验并执行外部脚本(并通过 WebSocket 发送输出)",
+        manual_parameters=[
+            openapi.Parameter(
+                'sim_code',
+                openapi.IN_QUERY,
+                description="模板实验名称: 例如：base_the_ville_isabella_maria_klaus",
+                type=openapi.TYPE_STRING,
+                required=True
+            ),
+            openapi.Parameter(
+                'target',
+                openapi.IN_QUERY,
+                description="目标实验名称",
+                type=openapi.TYPE_STRING,
+                required=True  
+            ),
+            openapi.Parameter(
+                'steps',
+                openapi.IN_QUERY,
+                description="实验步骤数",
+                type=openapi.TYPE_INTEGER,
+                required=True 
+            ),
+            openapi.Parameter(
+                'owner',
+                openapi.IN_QUERY,
+                description="实验所属者",
+                type=openapi.TYPE_STRING,
+                required=True 
+            ),
+        ],
+        responses={
+            ResultEnum.SUCCESS: openapi.Response(description="实验启动成功"),
+            ResultEnum.ERROR: openapi.Response(description="参数验证失败"),
+            ResultEnum.ERROR: openapi.Response(description="执行脚本不存在")
+        }
+    )
+    def post(self, request):
+        """启动实验并执行 Bash 脚本"""
+        # 获取参数
+        sim_code = request.GET.get('sim_code')
+        target = request.GET.get('target')
+        simulate_steps = request.GET.get('steps', 0)
+        owner = request.GET.get('owner')
+        target = target+"-"+owner # 用用户名字个性化
+
+        # 参数验证
+        if not sim_code or not target:
+            return generate_response(ResultEnum.ERROR, "sim_code and target are required.", {})
+        if sim_code == target:
+            return generate_response(ResultEnum.ERROR, "sim_code and target are the same.", {})
+
+        try:
+            simulate_steps = int(simulate_steps)
+        except ValueError:
+            return generate_response(ResultEnum.ERROR, "steps must be an integer.", {})
+
+        # 获取脚本路径
+        backend_script_path = os.path.join(settings.ROOT_DIR, "run_backend_automatic.sh")
+        if not os.path.exists(backend_script_path):
+            return generate_response(ResultEnum.ERROR, "Bash script not found.", {})
+
+        # 准备 Bash 脚本的参数
+        bash_command = [
+            'bash', backend_script_path,
+            '--origin', sim_code, 
+            '--target', target, 
+            '--steps', str(simulate_steps),
+            '--ui', 'false',
+            '--port', '8000',
+            '--owner', owner
+        ]
+
+        # 在脚本执行前创建目标文件夹，避免由于异步导致访问文件失败
+        sim_folder = os.path.join(EXPERIMENT_STORAGE_ROOT, sim_code)
+        target_folder = os.path.join(EXPERIMENT_STORAGE_ROOT, target)
+        # 检查路径是否存在
+        if os.path.exists(target_folder):
+            return generate_response(ResultEnum.ERROR, "Already have a same name experiment", {})
+        
+        MyCopyanything(sim_folder, target_folder)
+
+        # 使用线程启动异步事件循环
+        thread = threading.Thread(target=self.run_async_task, args=(target, bash_command))
+        thread.start()
+
+        return generate_response(ResultEnum.SUCCESS, "Experiment started successfully.", {
+            "webSocket": f"ws://{request.get_host()}/ws/experiment/{target}/"
+        })
+
+    def run_async_task(self, target, bash_command):
+        """创建新的事件循环并运行异步任务"""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(self.async_run_process(target, bash_command))
+
+    async def async_run_process(self, target, bash_command):
+        """使用 asyncio 启动 Bash 进程并监听输出"""
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *bash_command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            # 更新实验元数据
+            print(f"Experiment PID: {process.pid}")
+            await self.update_meta_status(target, process.pid, ExperimentStatus.RUNNING)
+
+
+            # 创建监听 stdout 和 stderr 的任务
+            stdout_task = asyncio.create_task(self.read_stream(target, process.stdout))
+            stderr_task = asyncio.create_task(self.read_stream(target, process.stderr, is_error=True))
+
+            await asyncio.gather(stdout_task, stderr_task)
+            await process.wait()
+
+            # 更新实验结束状态
+            await self.update_meta_status(target, None, ExperimentStatus.FINISHED)
+
+            # 发送实验结束消息
+            await self.send_websocket_message(target, "Experimental simulation finished")
+
+        except Exception as e:
+            logging.error(f"Error executing bash script: {e}")
+            await self.send_websocket_message(target, f"Error: {str(e)}")
+            await self.update_meta_status(target, None, ExperimentStatus.NOT_STARTED)  # 在出错时重置状态
+
+    async def update_meta_status(self, target, pid, status):
+        """更新实验的元数据文件"""
+        target_reverie_meta_path = os.path.join(EXPERIMENT_STORAGE_ROOT, target, "reverie", "meta.json")
+        try:
+            # 使用 aiofiles 读取 meta.json 文件
+            async with aiofiles.open(target_reverie_meta_path, 'r') as f:
+                meta_data = json.loads(await f.read())
+
+            # 更新 meta 数据
+            if pid is not None:
+                meta_data["pid"] = pid
+            meta_data["status"] = status.value
+            print(meta_data["pid"], "是当前存入的pid")
+
+            # 写回更新后的数据
+            async with aiofiles.open(target_reverie_meta_path, 'w') as f:
+                await f.write(json.dumps(meta_data, ensure_ascii=False, indent=2))
+
+        except Exception as e:
+            logging.error(f"Error reading or updating {target_reverie_meta_path}: {str(e)}")
+            await self.send_websocket_message(target, f"Error updating status: {str(e)}")
+
+    async def read_stream(self, target, stream, is_error=False):
+        """异步读取输出流并通过 WebSocket 发送"""
+        while not stream.at_eof():
+            line = await stream.readline()
+            if line:
+                message = line.strip()
+                if isinstance(message, bytes):
+                    message = message.decode()
+                if is_error:
+                    message = f"ERROR: {message}"
+                await self.send_websocket_message(target, message)
+
+    async def send_websocket_message(self, target, message):
+        """通过 WebSocket 发送消息"""
+        try:
+            channel_layer = get_channel_layer()
+            await channel_layer.group_send(
+                f"experiment_{target}",  # 使用唯一的组名称
+                {
+                    "type": "send_message",
+                    "message": message,
+                }
+            )
+        except Exception as e:
+            logging.error(f"WebSocket发送失败: {str(e)}")
+
 
 class ExperimentStatusView(APIView):
     """
@@ -929,32 +968,56 @@ class ExperimentStatusView(APIView):
         }
     )
     def get(self, request):
-        """
-        查询实验状态
-        """
+        """查询实验状态"""
         sim_code = request.GET.get('sim_code')
         if not sim_code:
             return generate_response(ResultEnum.ERROR, "sim_code is required.", {})
 
-        # 检查缓存中是否存在 sim_code
-        pid = cache.get(sim_code)
-        # print(f"存储的Experiment PID: {pid}")
+        target_reverie_meta_path = os.path.join(EXPERIMENT_STORAGE_ROOT, sim_code, "reverie", "meta.json")
+        try:
+            # 读取 meta.json 文件
+            with open(target_reverie_meta_path, 'r') as f:
+                meta_data = json.load(f)
 
-        if pid is None:
-            return generate_response(ResultEnum.SUCCESS, "成功获取实验状态", {"status":"not started"})
+            status = meta_data.get("status", ExperimentStatus.NOT_STARTED.value)
+            current_step = meta_data.get("current_step", 0)
+            total_step = meta_data.get("step", 0)
 
-        # 检查进程是否仍在运行
-        if self.is_process_running(pid):
-            return generate_response(ResultEnum.SUCCESS, "成功获取实验状态", {"status":"running"})
+            if status == ExperimentStatus.NOT_STARTED.value:
+                return generate_response(ResultEnum.SUCCESS, "成功获取实验状态", {
+                    "status": status,
+                    "current_step": current_step,
+                    "total_step": total_step
+                })
 
-        # 如果进程不再运行，则清除缓存并返回 finished 状态
-        # cache.delete(sim_code)  # 清除缓存（完整运行过一次就认为是finished状态）
-        return generate_response(ResultEnum.SUCCESS, "成功获取实验状态", {"status":"finished"})
+            # 检查进程是否仍在运行
+            elif status == ExperimentStatus.RUNNING.value and self.is_process_running(meta_data.get("pid")):
+                return generate_response(ResultEnum.SUCCESS, "成功获取实验状态", {
+                    "status": ExperimentStatus.RUNNING.value,
+                    "current_step": current_step,
+                    "total_step": total_step
+                })
+
+            # 如果进程不再运行，则返回 finished 状态
+            meta_data["status"] = ExperimentStatus.FINISHED.value # 确保当前状态正确
+            with open(target_reverie_meta_path, 'w') as f:
+                json.dump(meta_data, f, ensure_ascii=False, indent=2)
+            return generate_response(ResultEnum.SUCCESS, "成功获取实验状态", {
+                "status": ExperimentStatus.FINISHED.value,
+                "current_step": current_step,
+                "total_step": total_step
+            })
+
+        except FileNotFoundError:
+            return generate_response(ResultEnum.ERROR, f"Meta file not found at {target_reverie_meta_path}.", {})
+        except json.JSONDecodeError:
+            return generate_response(ResultEnum.ERROR, "Error decoding meta.json.", {})
+        except Exception as e:
+            logging.error(f"Error reading or updating {target_reverie_meta_path}: {str(e)}")
+            return generate_response(ResultEnum.ERROR, f"Unexpected error: {str(e)}", {})
 
     def is_process_running(self, pid):
-        """
-        检查指定的进程 ID 是否仍在运行
-        """
+        """检查指定的进程 ID 是否仍在运行"""
         try:
             os.kill(pid, 0)  # 发送信号 0 检查进程是否存在
             return True
@@ -982,40 +1045,51 @@ class ExperimentStopView(APIView):
         }
     )
     def post(self, request):
-        """
-        终止实验
-        """
+        """终止实验"""
         sim_code = request.GET.get('sim_code')
         if not sim_code:
             return generate_response(ResultEnum.ERROR, "sim_code is required.", {})
 
-        # 检查缓存中是否存在 sim_code
-        pid = cache.get(sim_code)
-        print(f"终止的目标Experiment PID: {pid}")
-
-        if pid is None:
-            return generate_response(ResultEnum.ERROR, "No running experiment found with the given sim_code.", {})
-
-        # 检查进程是否仍在运行
-        if not self.is_process_running(pid):
-            cache.delete(sim_code)  # 清除缓存
-            return generate_response(ResultEnum.ERROR, "The process is not running.", {})
-
-        # 尝试停止进程
+        target_reverie_meta_path = os.path.join(EXPERIMENT_STORAGE_ROOT, sim_code, "reverie", "meta.json")
         try:
+            # 读取 meta.json 文件
+            with open(target_reverie_meta_path, 'r') as f:
+                meta_data = json.load(f)
+
+            pid = meta_data.get("pid")
+            status = meta_data.get("status")
+            if status == ExperimentStatus.NOT_STARTED.value:
+                return generate_response(ResultEnum.ERROR, "No running experiment found with the given sim_code.", {})
+
+            # 检查进程是否仍在运行
+            elif status != ExperimentStatus.RUNNING.value or not self.is_process_running(pid):
+                return generate_response(ResultEnum.ERROR, "The process is not running.", {})
+            
+            # 检查进程是否仍在运行
+            elif status == ExperimentStatus.FINISHED.value:
+                return generate_response(ResultEnum.ERROR, "The experiment has finished.", {})
+
+            # 尝试停止进程
+            print("当前停止的实验是：",pid)
             self.terminate_process_and_children(pid)  # 终止进程及其子进程
-            cache.delete(sim_code)  # 删除缓存中的 PID
+            # 如果进程不再运行，则返回 finished 状态
+            meta_data["status"] = ExperimentStatus.FINISHED.value # 确保当前状态正确
+            with open(target_reverie_meta_path, 'w') as f:
+                json.dump(meta_data, f, ensure_ascii=False, indent=2)
+            return generate_response(ResultEnum.SUCCESS, "Experiment stopped successfully.", {})
+        
+        except FileNotFoundError:
+            return generate_response(ResultEnum.ERROR, f"Meta file not found at {target_reverie_meta_path}.", {})
+        except json.JSONDecodeError:
+            return generate_response(ResultEnum.ERROR, "Error decoding meta.json.", {})
         except ProcessLookupError:
             return generate_response(ResultEnum.ERROR, "Process not found.", {})
         except Exception as e:
-            return generate_response(ResultEnum.ERROR, f"Error stopping the process: {e}", {})
+            logging.error(f"Error stopping the process: {str(e)}")
+            return generate_response(ResultEnum.ERROR, f"Unexpected error: {str(e)}", {})
 
-        return generate_response(ResultEnum.SUCCESS, "Experiment stopped successfully.", {})
-    
     def is_process_running(self, pid):
-        """
-        检查指定的进程 ID 是否仍在运行
-        """
+        """检查指定的进程 ID 是否仍在运行"""
         try:
             os.kill(pid, 0)  # 发送信号 0 检查进程是否存在
             return True
@@ -1025,14 +1099,18 @@ class ExperimentStopView(APIView):
             return False
         
     def terminate_process_and_children(self, pid):
+        """终止进程及其子进程"""
         try:
             parent = psutil.Process(pid)
             for child in parent.children(recursive=True):  # 获取所有子进程
                 child.kill()  # 强制终止子进程
             parent.kill()  # 然后终止父进程
+        except ProcessLookupError:
+            logging.error("Process not found when trying to terminate.")
         except Exception as e:
-            print(f"Error terminating process and children: {e}")
-        
+            logging.error(f"Error terminating process and children: {e}")
+
+
 class ExperimentDeleteView(APIView):
     """
     删除指定实验
@@ -1071,7 +1149,6 @@ class ExperimentDeleteView(APIView):
         # 删除实验目录
         try:
             shutil.rmtree(experiment_dir)  # 删除实验目录
-            cache.delete(CACHE_KEY)  # 清除缓存
             return generate_response(ResultEnum.SUCCESS, "Experiment deleted successfully.", {})
         except OSError as e:
             return generate_response(ResultEnum.ERROR, f"Error deleting experiment: {str(e)}", {})
@@ -1124,3 +1201,121 @@ class ExperimentParentCheckView(APIView):
                     return generate_response(ResultEnum.SUCCESS, "该目录不是实验模板，是模拟历史", {"parent": meta_data["parent"],"isTemplate":False})
         except Exception as e:
             return generate_response(ResultEnum.ERROR, f"Error reading {reverie_meta_path}: {str(e)}", {})
+        
+
+
+class TemplateExperimentView(APIView):
+    """
+    查询实验是否为模板实验，并返回其子实验的列表
+    """
+    permission_classes = [AllowAny]
+
+    def _get_experiments(self):
+        """ 获取实验列表 """
+        try:
+            return os.listdir(EXPERIMENT_STORAGE_ROOT)
+        except FileNotFoundError:
+            return generate_response(ResultEnum.ERROR, "实验存储目录不存在", None)
+        except PermissionError:
+            return generate_response(ResultEnum.ERROR, "目录访问权限不足", None)
+
+    @swagger_auto_schema(
+        operation_description="查询实验是否为模板实验，并返回其子实验的列表",
+        manual_parameters=[
+            openapi.Parameter('sim_code', openapi.IN_QUERY, description="模板实验名称，例如：base_the_ville_isabella_maria_klaus", type=openapi.TYPE_STRING)
+        ],
+        responses={
+            ResultEnum.SUCCESS: openapi.Response(
+                description="成功获取子实验列表",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'code': openapi.Schema(type=openapi.TYPE_INTEGER),
+                        'message': openapi.Schema(type=openapi.TYPE_STRING),
+                        'data': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'sub_experiments': openapi.Schema(
+                                    type=openapi.TYPE_ARRAY,
+                                    items=openapi.Items(type=openapi.TYPE_OBJECT, properties={
+                                        'name': openapi.Schema(type=openapi.TYPE_STRING),
+                                        'type': openapi.Schema(type=openapi.TYPE_STRING),
+                                        'status': openapi.Schema(type=openapi.TYPE_STRING),
+                                        'current_step': openapi.Schema(type=openapi.TYPE_INTEGER),
+                                        'isTemplate': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                                    })
+                                ),
+                                'is_template': openapi.Schema(type=openapi.TYPE_BOOLEAN)
+                            }
+                        ),
+                    }
+                )
+            ),
+            ResultEnum.ERROR: openapi.Response(
+                description="错误信息",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'code': openapi.Schema(type=openapi.TYPE_INTEGER),
+                        'message': openapi.Schema(type=openapi.TYPE_STRING)
+                    }
+                )
+            )
+        }
+    )
+    def get(self, request, *args, **kwargs):
+        """ 统一入口处理 GET 请求 """
+        sim_code = request.query_params.get('sim_code', '')  # 获取实验名称参数
+        if not sim_code:
+            return generate_response(ResultEnum.ERROR, "实验名称未提供", None)
+
+        # 构建目标实验的 meta.json 路径
+        experiment_reverie_meta_path = os.path.join(EXPERIMENT_STORAGE_ROOT, sim_code, "reverie/meta.json")
+
+        # 检查目标实验是否存在并读取其元数据
+        try:
+            with open(experiment_reverie_meta_path, 'r') as f:
+                meta_data = json.load(f)
+                if "parent" not in meta_data:
+                    return generate_response(ResultEnum.SUCCESS, "This experiment is not a template experiment", {"is_template": False, "sub_experiments": []})
+
+        except FileNotFoundError:
+            return generate_response(ResultEnum.ERROR, "The target experiment does not exist", None)
+
+        # 获取实验列表
+        experiments = self._get_experiments()
+
+        if isinstance(experiments, Response):  # 检查是否返回了错误响应
+            return experiments
+
+        sub_experiments = []
+
+        # 遍历实验列表，查找子实验
+        for exp in experiments:
+            experiment_dir = os.path.join(EXPERIMENT_STORAGE_ROOT, exp)
+            reverie_meta_path = os.path.join(experiment_dir, "reverie/meta.json")
+
+            try:
+                with open(reverie_meta_path, 'r') as f:
+                    meta_data = json.load(f)
+                    # 检查子实验的 parent 字段是否等于目标实验名称
+                    if meta_data.get("parent") == sim_code and exp != sim_code:
+                        sub_experiments.append({
+                            "name": exp,
+                            "type": "public" if exp in PUBLIC_EXPERIMENT_WHITELIST else "private",
+                            "status": meta_data.get("status"),
+                            "current_step": meta_data.get("current_step"),
+                            "isTemplate": False,
+                        })
+
+            except FileNotFoundError:
+                continue  # 跳过该实验
+
+        return generate_response(
+            ResultEnum.SUCCESS,
+            "This experiment is a template experiment",
+            {
+                "is_template": True,
+                "sub_experiments": sub_experiments
+            }
+        )
