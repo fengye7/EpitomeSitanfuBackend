@@ -36,5 +36,5 @@
   "parent": "skip-morning-s-14",
   "pid": 0,
   "status": "not started",
-  "current_step": 0
+  "total_step": 3000
 }

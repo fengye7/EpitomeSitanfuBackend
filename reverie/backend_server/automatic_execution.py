@@ -158,7 +158,8 @@ def get_new_checkpoint(step: int, tot_steps: int, checkpoint_freq: int) -> int:
     return new_checkpoint
 
 
-def save_checkpoint(rs, idx: int, th: Process) -> Tuple[str, int, int]:
+# 调整保存函数符合小镇要求，原项目版本大致逻辑见 AutomaticReverieServer
+def save_checkpoint(rs, idx: int) -> Tuple[str, int, int]:
     """Save the checkpoint and return the data to start the new one.
 
     Args:
@@ -175,7 +176,7 @@ def save_checkpoint(rs, idx: int, th: Process) -> Tuple[str, int, int]:
     return target, get_starting_step(target), idx+1
 
 
-###封装一个自动化服务类用于接口调用：
+###封装一个自动化服务类用于接口调用：（废弃未使用，逻辑是项目原始逻辑用于对照，删了一些比如th和pid启动UI）；原项目通过检查点每一段保存一个新文件夹，而我们希望自动化运行但是每步都是在同一个文件夹
 class AutomaticReverieServer:
     def __init__(self, origin: str, target: str, steps: int, ui: bool, port: str, isCreate: bool = False):
         self.origin = origin
@@ -209,7 +210,7 @@ class AutomaticReverieServer:
                 steps_to_run = curr_checkpoint - self.current_step
                 print(f"(Auto-Exec): Running experiment '{self.target}' from step '{self.current_step}' to '{curr_checkpoint}'", flush=True)
 
-                rs = reverie.ReverieServer(self.origin, self.target, self.isCreate)
+                rs = reverie.ReverieServer(self.origin, self.target)
                 rs.open_server(input_command=f"run {steps_to_run}")
 
             except KeyboardInterrupt:
@@ -245,7 +246,7 @@ if __name__ == '__main__':
     log_path = "cost-logs"  # where the simulations' prints are stored
     idx = 0
     origin, target, tot_steps, ui, browser_path, port, owner = parse_args()
-    current_step = get_starting_step(origin)
+    current_step = 0
     exp_name = target
     start_time = datetime.now()
     tot_steps = int(tot_steps)
@@ -256,29 +257,32 @@ if __name__ == '__main__':
     print(f"(Auto-Exec): Total steps: {tot_steps}", flush=True)
     # print(f"(Auto-Exec): Checkpoint Freq: {checkpoint_freq}", flush=True)
 
+    # 读取 meta.json 文件
+    target_reverie_meta_path = os.path.join(fs_storage, target, "reverie", "meta.json")
+    with open(target_reverie_meta_path, 'r') as f:
+        meta_data = json.load(f)
+    # 写回更新后的数据
+    meta_data["total_step"] = int(meta_data["total_step"]) + tot_steps
+    with open(target_reverie_meta_path, 'w') as f:
+        json.dump(meta_data, f, ensure_ascii=False, indent=2)
+
+    rs = reverie.ReverieServer(origin, target, owner=owner) # 创建一个实例用于完成整个自动化流程
     while current_step < tot_steps:
         try:
             print(f"(Auto-Exec): Running experiment '{exp_name}' from step '{current_step}' to '{current_step+1}'", flush=True)
 
-            rs = reverie.ReverieServer(origin, target, owner=owner)
-
-            # 读取 meta.json 文件
-            target_reverie_meta_path = os.path.join(fs_storage, target, "reverie", "meta.json")
-            with open(target_reverie_meta_path, 'r') as f:
-                meta_data = json.load(f)
             # 写回更新后的数据
-            meta_data["current_step"] = current_step
             meta_data["status"] = "running"
             with open(target_reverie_meta_path, 'w') as f:
                 json.dump(meta_data, f, ensure_ascii=False, indent=2)
 
-            th, pid = None, None
-            # Headless chrome doesn't need a thread since it creates a dedicated thread by itself
-            if ui:
-                th = Process(target=start_web_tab, args=(ui, browser_path, port))
-                th.start()
-            else:
-                pid = start_web_tab(ui, browser_path, port)
+            # th, pid = None, None # 我们不需要实时观看模拟的功能，关闭以节省资源
+            # # Headless chrome doesn't need a thread since it creates a dedicated thread by itself
+            # if ui:
+            #     th = Process(target=start_web_tab, args=(ui, browser_path, port))
+            #     th.start()
+            # else:
+            #     pid = start_web_tab(ui, browser_path, port)
             rs.open_server(input_command=f"run {1}") # 一步一步运行
         except KeyboardInterrupt:
             print("(Auto-Exec): KeyboardInterrupt: Stopping the experiment.", flush=True)
@@ -287,26 +291,34 @@ if __name__ == '__main__':
             print(e, flush=True)
             step = e.args[1]
             if step != 0:
-                origin, current_step, idx = save_checkpoint(rs, idx, th)
-            else:
-                shutil.rmtree(f"{ROOT_DIR}/environment/frontend_server/storage/{target}")  # Remove the experiment folder if no steps were run
+                rs.open_server(input_command="save")
+                print(f"(Auto-Exec): Checkpoint saved step: {current_step}", flush=True) 
+                current_step += 1
+            # else:
+            #     shutil.rmtree(f"{ROOT_DIR}/environment/frontend_server/storage/{target}")  # Remove the experiment folder if no steps were run 现项目里不能删
             print(f"(Auto-Exec): Error at step {current_step}", flush=True)
             print(f"(Auto-Exec): Exception {e.args[0]}", flush=True)
         else:
-            origin, current_step, idx = save_checkpoint(rs, idx, th)
-        finally:
-            time.sleep(10)  # Wait for the server to finish and then kill the process
-            if th and th.is_alive():
-                th.kill()
-                th.join()
-                th.close()
-                gc.collect()
+            rs.open_server(input_command="save")
+            print(f"(Auto-Exec): Checkpoint saved step: {current_step}", flush=True) 
+            current_step += 1 
+        # finally:
+        #     time.sleep(10)  # Wait for the server to finish and then kill the process
+        #     if th and th.is_alive():
+        #         th.kill()
+        #         th.join()
+        #         th.close()
+        #         gc.collect()
 
-            if pid:
-                os.system(f"kill -9 {pid}")
-                print(f"(Auto-Exec): Killed web tab process with pid {pid}", flush=True)
-                pid = None
-
+        #     if pid:
+        #         os.system(f"kill -9 {pid}")
+        #         print(f"(Auto-Exec): Killed web tab process with pid {pid}", flush=True)
+        #         pid = None
+    rs.open_server(input_command="fin") # 循环结束后保存退出
+    # 写回更新后的数据
+    meta_data["status"] = "finished"
+    with open(target_reverie_meta_path, 'w') as f:
+        json.dump(meta_data, f, ensure_ascii=False, indent=2)
     print(f"(Auto-Exec): EXPERIMENT FINISHED: {exp_name}")
     OpenAICostLoggerViz.print_experiment_cost(experiment=exp_name, path=log_path)
     OpenAICostLoggerViz.print_total_cost(path=log_path)

@@ -144,47 +144,41 @@
 	//         update() is called on each frame during the game play 
 
 	function preload() {  
-	  // Loading the necessary images (e.g., the background image, character 
-	  // sprites). 
+		// 加载必要的图像（例如，背景图像、角色精灵）。
 
-	  // Joon: for load.image, the first parameter is simply the key value that
-	  //       you are passing in. The second parameter should be pointed to the
-	  //       png file that contains the tileset. 
-	  //       Also IMPORTANT: when you create a tileset in Tiled, always be  
-	  //       sure to check the "embedded" option. 
-	  this.load.image("blocks_1", "{% static 'assets/the_ville/visuals/map_assets/blocks/blocks_1.png' %}");
-	  this.load.image("walls", "{% static 'assets/the_ville/visuals/map_assets/v1/Room_Builder_32x32.png' %}");
-	  this.load.image("interiors_pt1", "{% static 'assets/the_ville/visuals/map_assets/v1/interiors_pt1.png' %}");
-	  this.load.image("interiors_pt2", "{% static 'assets/the_ville/visuals/map_assets/v1/interiors_pt2.png' %}");
-	  this.load.image("interiors_pt3", "{% static 'assets/the_ville/visuals/map_assets/v1/interiors_pt3.png' %}");
-	  this.load.image("interiors_pt4", "{% static 'assets/the_ville/visuals/map_assets/v1/interiors_pt4.png' %}");
-	  this.load.image("interiors_pt5", "{% static 'assets/the_ville/visuals/map_assets/v1/interiors_pt5.png' %}");
-	  this.load.image("CuteRPG_Field_B", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Field_B.png' %}");
-	  this.load.image("CuteRPG_Field_C", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Field_C.png' %}");
-	  this.load.image("CuteRPG_Harbor_C", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Harbor_C.png' %}");
-	  this.load.image("CuteRPG_Village_B", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Village_B.png' %}");
-	  this.load.image("CuteRPG_Forest_B", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Forest_B.png' %}");
-	  this.load.image("CuteRPG_Desert_C", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Desert_C.png' %}");
-	  this.load.image("CuteRPG_Mountains_B", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Mountains_B.png' %}");
-	  this.load.image("CuteRPG_Desert_B", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Desert_B.png' %}");
-	  this.load.image("CuteRPG_Forest_C", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Forest_C.png' %}");
+		// Joon: 对于 load.image，第一个参数只是你传入的键值。
+		//       第二个参数应指向包含图块集的 png 文件。
+		//       另外重要的是：在 Tiled 中创建图块集时，始终确保勾选“嵌入”选项。
+		this.load.image("blocks_1", "{% static 'assets/the_ville/visuals/map_assets/blocks/blocks_1.png' %}");
+		this.load.image("walls", "{% static 'assets/the_ville/visuals/map_assets/v1/Room_Builder_32x32.png' %}");
+		this.load.image("interiors_pt1", "{% static 'assets/the_ville/visuals/map_assets/v1/interiors_pt1.png' %}");
+		this.load.image("interiors_pt2", "{% static 'assets/the_ville/visuals/map_assets/v1/interiors_pt2.png' %}");
+		this.load.image("interiors_pt3", "{% static 'assets/the_ville/visuals/map_assets/v1/interiors_pt3.png' %}");
+		this.load.image("interiors_pt4", "{% static 'assets/the_ville/visuals/map_assets/v1/interiors_pt4.png' %}");
+		this.load.image("interiors_pt5", "{% static 'assets/the_ville/visuals/map_assets/v1/interiors_pt5.png' %}");
+		this.load.image("CuteRPG_Field_B", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Field_B.png' %}");
+		this.load.image("CuteRPG_Field_C", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Field_C.png' %}");
+		this.load.image("CuteRPG_Harbor_C", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Harbor_C.png' %}");
+		this.load.image("CuteRPG_Village_B", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Village_B.png' %}");
+		this.load.image("CuteRPG_Forest_B", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Forest_B.png' %}");
+		this.load.image("CuteRPG_Desert_C", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Desert_C.png' %}");
+		this.load.image("CuteRPG_Mountains_B", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Mountains_B.png' %}");
+		this.load.image("CuteRPG_Desert_B", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Desert_B.png' %}");
+		this.load.image("CuteRPG_Forest_C", "{% static 'assets/the_ville/visuals/map_assets/cute_rpg_word_VXAce/tilesets/CuteRPG_Forest_C.png' %}");
 
-	  // Joon: This is the export json file you get from Tiled. 
-	  this.load.tilemapTiledJSON("map", "{% static 'assets/the_ville/visuals/the_ville_jan7.json' %}");
-	  {% comment %} this.load.tilemapTiledJSON("map", "{% static 'assets/the_ville/visuals/mytest_newMap.json' %}"); {% endcomment %}
+		// Joon: 这是从 Tiled 获取的导出 JSON 文件。
+		this.load.tilemapTiledJSON("map", "{% static 'assets/the_ville/visuals/the_ville_jan7.json' %}");
+		{% comment %} this.load.tilemapTiledJSON("map", "{% static 'assets/the_ville/visuals/mytest_newMap.json' %}"); {% endcomment %} // 测试新地图
 
-
-	  // An atlas is a way to pack multiple images together into one texture. I'm 
-	  // using it to load all the player animations (walking left, walking right, 
-	  // etc.) in one image. For more info see:
-	  // https://labs.phaser.io/view.html?src=src/animation/texture%20atlas%20animation.js
-	  // If you don't use an atlas, you can do the same thing with a spritesheet, 
-	  // see: https://labs.phaser.io/view.html?src=src/animation/single%20sprite%20sheet.js
-	  // Joon: Technically, I think this guy had the best tutorial for atlas: 
-	  //       https://www.youtube.com/watch?v=fdXcD9X4NrQ&ab_channel=MorganPage
-	  this.load.atlas("atlas", 
-	                  "https://mikewesthad.github.io/phaser-3-tilemap-blog-posts/post-1/assets/atlas/atlas.png", 
-	                  "https://mikewesthad.github.io/phaser-3-tilemap-blog-posts/post-1/assets/atlas/atlas.json");
+		// 图集是一种将多个图像打包到一个纹理中的方式。我
+		// 正在使用它来加载所有玩家动画（向左走、向右走等）在一张图像中。有关更多信息，请参见：
+		// https://labs.phaser.io/view.html?src=src/animation/texture%20atlas%20animation.js
+		// 如果不使用图集，可以使用精灵表实现相同的效果，见：https://labs.phaser.io/view.html?src=src/animation/single%20sprite%20sheet.js
+		// Joon: 技术上，我认为这个家伙的图集教程最好：
+		//       https://www.youtube.com/watch?v=fdXcD9X4NrQ&ab_channel=MorganPage
+		this.load.atlas("atlas", 
+						"https://mikewesthad.github.io/phaser-3-tilemap-blog-posts/post-1/assets/atlas/atlas.png", 
+						"https://mikewesthad.github.io/phaser-3-tilemap-blog-posts/post-1/assets/atlas/atlas.json");
 	}
 
 	function create() {  
@@ -409,6 +403,7 @@
 		} 
 
 		else if (phase == "update") { 
+			// 这里是和translator中的接口通信创建相关的文件
 			// 在此阶段，等待后端服务器计算角色的下一步行动。
 			// 不过度查询后端，所以设置计时器，每隔 timer_max 周期查询一次。
 			if (timer <= 0) {

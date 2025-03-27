@@ -377,7 +377,6 @@ class ExperimentCreateView(APIView):
                     ),
                     description="人物设置，包括每个人物的详细信息"
                 ),
-                'steps': openapi.Schema(type=openapi.TYPE_INTEGER, description="实验模拟的步数"),
                 'sec_per_step':openapi.Schema(type=openapi.TYPE_INTEGER, description="实验每模拟一步代表的秒数"),
                 'owner': openapi.Schema(type=openapi.TYPE_STRING, description="所属者名称: 例如：ZhouChengjie"),
             },
@@ -396,7 +395,6 @@ class ExperimentCreateView(APIView):
         maze_name = request.data.get('maze_name')
         start_date = request.data.get('start_date')
         characters = request.data.get('characters')
-        simulate_steps = request.data.get('steps')
         sec_per_step = request.data.get('sec_per_step')
         owner = request.data.get('owner')
 
@@ -450,7 +448,6 @@ class ExperimentCreateView(APIView):
             reverie_meta["persona_names"] = [character.get('name') for character in characters]
             reverie_meta["fork_sim_code"] = sim_code
             reverie_meta["parent"] = sim_code
-            reverie_meta["step"] = simulate_steps
             reverie_meta["sec_per_step"] = sec_per_step
             reverie_meta["owner"] = owner
             reverie_meta["maze_name"] = maze_name
@@ -979,12 +976,13 @@ class ExperimentStatusView(APIView):
             with open(target_reverie_meta_path, 'r') as f:
                 meta_data = json.load(f)
 
-            status = meta_data.get("status", ExperimentStatus.NOT_STARTED.value)
-            current_step = meta_data.get("current_step", 0)
-            total_step = meta_data.get("step", 0)
+            status = meta_data.get("status")
+            current_step = meta_data.get("step")
+            total_step = meta_data.get("total_step")
 
             if status == ExperimentStatus.NOT_STARTED.value:
                 return generate_response(ResultEnum.SUCCESS, "成功获取实验状态", {
+                    "sim_code": sim_code,
                     "status": status,
                     "current_step": current_step,
                     "total_step": total_step
@@ -993,6 +991,7 @@ class ExperimentStatusView(APIView):
             # 检查进程是否仍在运行
             elif status == ExperimentStatus.RUNNING.value and self.is_process_running(meta_data.get("pid")):
                 return generate_response(ResultEnum.SUCCESS, "成功获取实验状态", {
+                    "sim_code": sim_code,
                     "status": ExperimentStatus.RUNNING.value,
                     "current_step": current_step,
                     "total_step": total_step
@@ -1003,6 +1002,7 @@ class ExperimentStatusView(APIView):
             with open(target_reverie_meta_path, 'w') as f:
                 json.dump(meta_data, f, ensure_ascii=False, indent=2)
             return generate_response(ResultEnum.SUCCESS, "成功获取实验状态", {
+                "sim_code": sim_code,
                 "status": ExperimentStatus.FINISHED.value,
                 "current_step": current_step,
                 "total_step": total_step
@@ -1304,7 +1304,7 @@ class TemplateExperimentView(APIView):
                             "name": exp,
                             "type": "public" if exp in PUBLIC_EXPERIMENT_WHITELIST else "private",
                             "status": meta_data.get("status"),
-                            "current_step": meta_data.get("current_step"),
+                            "current_step": meta_data.get("step"),
                             "isTemplate": False,
                         })
 
