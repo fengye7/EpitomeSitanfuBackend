@@ -1,0 +1,15 @@
+{
+  "fork_sim_code": "No Fork",
+  "start_date": "February 20, 2025",
+  "curr_time": "February 20, 2025, 00:00:00",
+  "sec_per_step": 10,
+  "maze_name": "the_ville",
+  "persona_names": [ 
+  ],
+  "step": 0,
+  "owner": "",
+  "parent": "No Fork",
+  "pid": 0,
+  "status": "not started",
+  "total_step": 0
+}
