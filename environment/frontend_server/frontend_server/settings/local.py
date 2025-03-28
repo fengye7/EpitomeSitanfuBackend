@@ -87,9 +87,11 @@ WSGI_APPLICATION = 'frontend_server.wsgi.application'
 # 如果需要携带凭据（例如 Cookie），则配置如下：
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:7777",  # 前端地址
+    "http://localhost:7777",    # 前端地址
     "http://127.0.0.1:7777",    # 根据你的实际情况添加
     "http://localhost:7778",
+    "http://127.0.0.1:7778",
+    "http://localhost:7776",
     "http://127.0.0.1:7778"
 ]
 CORS_ALLOW_CREDENTIALS = True
