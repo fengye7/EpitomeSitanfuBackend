@@ -114,6 +114,7 @@ pycparser==2.21
 pydantic==2.9.2
 pydantic_core==2.23.4
 Pygments==2.19.1
+PyMySQL==1.1.1
 pyOpenSSL==25.0.0
 pyparsing==3.0.6
 PyPika==0.48.9

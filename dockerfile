@@ -9,7 +9,7 @@ COPY . /generative_agents
 
 # 安装依赖：首先安装后端依赖
 RUN pip install --upgrade pip
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir  -r requirements.txt
 
 # # 安装 Node.js 和前端依赖
 # RUN apt-get update && apt-get install -y curl

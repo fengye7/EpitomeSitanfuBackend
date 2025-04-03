@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'daphne', # 必须在channels的上面
     'channels', # 用于WebSocket
     'translator',
+    'integration_core',
     'corsheaders',
     'storages',
     'rest_framework', 
@@ -92,6 +93,14 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+    },
+    'mysql': {
+        'ENGINE': 'django.db.backends.mysql',  # MySQL 数据库
+        'NAME': 'epitome_backend',           # MySQL 数据库名称
+        'USER': 'epitome',                 # MySQL 用户名
+        'PASSWORD': '123456',             # MySQL 密码
+        'HOST': 'localhost',                     # MySQL 地址
+        'PORT': '3306',                          # MySQL 默认端口
     }
 }
 
