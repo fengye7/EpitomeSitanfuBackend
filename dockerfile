@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir  -r requirements.txt
 
 # 返回到项目根目录，暴露后端和前端端口
 WORKDIR /generative_agents
-EXPOSE 8000 8080
+EXPOSE 8000
 
 # 启动后端和前端
 # CMD ["sh", "-c", "python3 manage.py runserver 0.0.0.0:8000 & npm run serve --prefix environment/frontend_ui"]

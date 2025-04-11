@@ -93,7 +93,11 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:7778",
     "http://127.0.0.1:7778",
     "http://localhost:7776",
-    "http://127.0.0.1:7778"
+    "http://127.0.0.1:7776",
+
+    "http://61.169.23.150:7777",
+    "http://61.169.23.150:7778",
+    "http://61.169.23.150:7776",
 ]
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = [
@@ -104,6 +108,7 @@ CORS_ALLOW_HEADERS = [
     'origin',
     'user-agent',
     'language',  # 添加这一行
+    'accept-language',  # 国际化
 ]
 
 
@@ -115,14 +120,6 @@ DATABASES = {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
     },
-    'mysql': {
-        'ENGINE': 'django.db.backends.mysql',  # MySQL 数据库
-        'NAME': 'epitome_backend',           # MySQL 数据库名称
-        'USER': 'epitome',                 # MySQL 用户名
-        'PASSWORD': '123456',             # MySQL 密码
-        'HOST': 'localhost',                     # MySQL 地址
-        'PORT': '3306',                          # MySQL 默认端口
-    }
 }
 
 
