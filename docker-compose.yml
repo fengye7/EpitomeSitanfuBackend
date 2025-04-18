@@ -6,8 +6,25 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "8000"
     volumes:
       - .:/generative_agents
+      - ./environment:/generative_agents/environment
+      - ./reverie:/generative_agents/reverie
+      - ./environment/frontend_server/storage:/generative_agents/environment/frontend_server/storage
+      - ./environment/frontend_server/compressed_storage:/generative_agents/environment/frontend_server/compressed_storage
     environment:
       - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    command: gunicorn --bind 0.0.0.0:8000 --workers 3 environment.frontend_server.wsgi:application
+
+  nginx:
+    image: nginx:latest
+    ports:
+      - "${EXPOSE_WEB_PORT}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./environment/frontend_server/storage:/generative_agents/environment/frontend_server/storage
+      - ./environment/frontend_server/compressed_storage:/generative_agents/environment/frontend_server/compressed_storage
+    depends_on:
+      - backend  # 简单依赖声明
