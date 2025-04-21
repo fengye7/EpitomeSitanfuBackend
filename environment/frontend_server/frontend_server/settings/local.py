@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'daphne', # 必须在channels的上面
     'channels', # 用于WebSocket
+    'frontend_server',
     'translator',
     'integration_core',
     'corsheaders',

@@ -6,17 +6,21 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8000"
+      - "8000"  # 明确映射到主机端口 8000
     volumes:
-      - .:/generative_agents
-      - ./environment:/generative_agents/environment
-      - ./reverie:/generative_agents/reverie
-      - ./environment/frontend_server/storage:/generative_agents/environment/frontend_server/storage
-      - ./environment/frontend_server/compressed_storage:/generative_agents/environment/frontend_server/compressed_storage
+      - .:/app  # 仅挂载项目根目录
+      - ./environment/frontend_server/storage:/app/environment/frontend_server/storage
+      - ./environment/frontend_server/compressed_storage:/app/environment/frontend_server/compressed_storage
+    working_dir: /app/environment/frontend_server  # 直接进入 Django 项目目录
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app/environment  # 关键：让 Python 能找到 frontend_server 模块
     restart: unless-stopped
-    command: gunicorn --bind 0.0.0.0:8000 --workers 3 environment.frontend_server.wsgi:application
+    command: >
+      gunicorn --bind 0.0.0.0:8000 
+      --workers 4 
+      --timeout 120 
+      frontend_server.wsgi:application  # 直接引用 frontend_server 模块
 
   nginx:
     image: nginx:latest
@@ -24,7 +28,8 @@ services:
       - "${EXPOSE_WEB_PORT}:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf
-      - ./environment/frontend_server/storage:/generative_agents/environment/frontend_server/storage
-      - ./environment/frontend_server/compressed_storage:/generative_agents/environment/frontend_server/compressed_storage
+      - ./environment/frontend_server/storage:/app/environment/frontend_server/storage
+      - ./environment/frontend_server/compressed_storage:/app/environment/frontend_server/compressed_storage
     depends_on:
-      - backend  # 简单依赖声明
+      - backend
+    restart: always
